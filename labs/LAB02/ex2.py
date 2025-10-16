@@ -7,22 +7,25 @@ from board import D4 as D4
 mac_address = hex(uuid.getnode())
 dhtDevice = adafruit_dht.DHT11(D4)
 
-REDIS_HOST = 'redis-15750.c135.eu-central-1-1.ec2.redns.redis-cloud.com'
-REDIS_PORT = 15750
-REDIS_USERNAME = 'default'
-REDIS_PASSWORD = 'r35F7Gez05k66A86KA9JcSfqdZL9ekrG'
+TEMPERATURE_TS = 'TemperatureTS'
+HUMIDITY_TS = 'HumidityTS'
 
 redis_client = redis.Redis(
-    host=REDIS_HOST,
-    port=REDIS_PORT,
-    username=REDIS_USERNAME,
-    password=REDIS_PASSWORD
+    host='redis-15750.c135.eu-central-1-1.ec2.redns.redis-cloud.com',
+    port=15750,
+    username='default',
+    password='r35F7Gez05k66A86KA9JcSfqdZL9ekrG'
 )
 
 assert redis_client.ping(), 'Could not connect to Redis'
 
 try:
-    redis_client.ts().create('mytimeseries')
+    redis_client.ts().create(TEMPERATURE_TS)
+except redis.ResponseError:
+    pass
+
+try:
+    redis_client.ts().create(HUMIDITY_TS)
 except redis.ResponseError:
     pass
 
@@ -36,9 +39,25 @@ while True:
         
         print("%s - %s:temperature = %.3f"%(formatted_datetime, mac_address, temperature))
         print("%s - %s:humidity = %.3f\n"%(formatted_datetime, mac_address, humidity))
+        
+        redis_client.ts().add(
+            key=TEMPERATURE_TS,
+            timestamp=timestamp, 
+            value=temperature,
+            labels={'time':formatted_datetime, 'mac':mac_address}
+        )
+        
+        redis_client.ts().add(
+            key=HUMIDITY_TS,
+            timestamp=timestamp,  
+            value=humidity,
+            labels={'time':formatted_datetime, 'mac':mac_address}
+        )
+
+        
     except:
         print('%s - sensor failure\n'%(formatted_datetime))
         dhtDevice.exit()
         dhtDevice = adafruit_dht.DHT11(D4)
 
-    time.sleep(1)
+    time.sleep(2)
