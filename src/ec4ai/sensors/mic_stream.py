@@ -33,6 +33,7 @@ def save_audio(args: argparse.Namespace, config: dict):
     print("Saved '%s' :%.2f KB\n"%(filepath, filesize))
 
     audio_buffer = []
+    return filepath
 
 def start_recording(args: argparse.Namespace, config: dict):
 
@@ -56,17 +57,11 @@ def start_recording(args: argparse.Namespace, config: dict):
         while True:
             key = input().strip().lower()
 
-            if key == "q":
-                if store_audio:
-                    print("saving before exit...\n")
-                    store_audio = not store_audio
-                    save_audio(args, config)
-                    current_filename = None
-                break
 
-            elif key == "p":
+            if key == "p":
                 store_audio = not store_audio
                 current_filename = "%f.wav"%time()
                 sd.sleep(int(args.duration * 1000))
-                save_audio(args, config)
+                file_path = save_audio(args, config)
                 store_audio = not store_audio
+                return file_path

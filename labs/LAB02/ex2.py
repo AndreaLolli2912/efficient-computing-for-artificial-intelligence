@@ -3,6 +3,7 @@ import uuid
 import time
 from datetime import datetime
 from board import D4 as D4
+import redis
 
 mac_address = hex(uuid.getnode())
 dhtDevice = adafruit_dht.DHT11(D4)
@@ -18,6 +19,7 @@ redis_client = redis.Redis(
 )
 
 assert redis_client.ping(), 'Could not connect to Redis'
+print("Connesso")
 
 try:
     redis_client.ts().create(TEMPERATURE_TS)
@@ -28,6 +30,7 @@ try:
     redis_client.ts().create(HUMIDITY_TS)
 except redis.ResponseError:
     pass
+print("Okay timeseries")
 
 
 while True:
@@ -42,16 +45,14 @@ while True:
         
         redis_client.ts().add(
             key=TEMPERATURE_TS,
-            timestamp=timestamp, 
-            value=temperature,
-            labels={'time':formatted_datetime, 'mac':mac_address}
+            timestamp='*', 
+            value= temperature
         )
         
         redis_client.ts().add(
             key=HUMIDITY_TS,
-            timestamp=timestamp,  
-            value=humidity,
-            labels={'time':formatted_datetime, 'mac':mac_address}
+            timestamp='*',  
+            value= humidity
         )
 
         
