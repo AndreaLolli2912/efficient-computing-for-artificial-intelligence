@@ -22,7 +22,7 @@ def cloud_inference_client(filename: str, n_trials=20):
     
     if sampling_rate > 16_000:
         transform = T.Resample(sampling_rate, 16_000)
-        x = transform(x)
+        x = transform(x).copy()
         sampling_rate = 16_000
     
     encoded = base64.b64encode(x.numpy().tobytes()).decode('utf-8')
