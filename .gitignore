@@ -1,4 +1,18 @@
-/data
-**/.vscode/
+# Ignore data folder
+/data/
+
+# Ignore VSCode settings
+.vscode/
+
+# Ignore environment variables file
 .env
+
+# Ignore all Python cache folders
 **/__pycache__/
+
+# Ignore compiled Python files
+*.py[cod]
+
+# Ignore virtual environments
+.venv/
+venv/
