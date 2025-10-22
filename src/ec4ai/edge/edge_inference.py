@@ -9,6 +9,11 @@ from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 MAX_SAMPLING_RATE = 16_000
 
+def load_model_and_processor(model_name: str = 'openai/whisper-tiny.en'):
+    processor = WhisperProcessor.from_pretrained(model_name)
+    model = WhisperForConditionalGeneration.from_pretrained(model_name)
+    return model, processor
+
 def edge_inference(audio_path: str, n_trials:int = 20):
     # Fix the CPU frequency to its maximum value (1.5 GHz)
     Popen(
@@ -18,9 +23,7 @@ def edge_inference(audio_path: str, n_trials:int = 20):
     ).wait()
 
     # Load model and processor
-    model_name = 'openai/whisper-tiny.en'
-    processor = WhisperProcessor.from_pretrained(model_name)
-    model = WhisperForConditionalGeneration.from_pretrained(model_name)
+    model, processor = load_model_and_processor()
 
     # Load test WAV file
     audio_data, sampling_rate = load_audio(audio_path, MAX_SAMPLING_RATE)
@@ -30,14 +33,20 @@ def edge_inference(audio_path: str, n_trials:int = 20):
 
     for i in range(n_trials):
         start = time()
-        input_features = processor(
-            x, sampling_rate=MAX_SAMPLING_RATE, return_tensors="pt"
-        ).input_features
-
-        predicted_ids = model.generate(input_features)
-        transcription = processor.batch_decode(
-            predicted_ids, skip_special_tokens=False
+        
+        inputs = processor(
+            audio_data, 
+            sampling_rate=MAX_SAMPLING_RATE, 
+            return_tensors="pt"
         )
+
+        predicted_ids = model.generate(input_features = inputs.input_features)
+
+        transcription = processor.batch_decode(
+            predicted_ids, skip_special_tokens=Falsecle
+        )
+
+        print(transcription)
         end = time()
         times.append(end - start)
         sleep(0.1)
