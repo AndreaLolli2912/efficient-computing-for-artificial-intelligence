@@ -26,14 +26,14 @@ def save_audio(args: argparse.Namespace, config: dict):
 
     output_dir = config["audio"]["base_dir"]
     os.makedirs(output_dir, exist_ok=True)
-    filepath = os.path.join(output_dir, current_filename)
-    write(filepath, args.sampling_rate, audio_data)
+    audio_path = os.path.join(output_dir, current_filename)
+    write(audio_path, args.sampling_rate, audio_data)
 
-    filesize = os.path.getsize(filepath) / 1024
-    print("Saved '%s' :%.2f KB\n"%(filepath, filesize))
+    filesize = os.path.getsize(audio_path) / 1024
+    print("Saved '%s' :%.2f KB\n"%(audio_path, filesize))
 
     audio_buffer = []
-    return filepath
+    return audio_path
 
 def start_recording(args: argparse.Namespace, config: dict):
 
@@ -56,12 +56,10 @@ def start_recording(args: argparse.Namespace, config: dict):
     ):
         while True:
             key = input().strip().lower()
-
-
             if key == "p":
                 store_audio = not store_audio
                 current_filename = "%f.wav"%time()
                 sd.sleep(int(args.duration * 1000))
-                file_path = save_audio(args, config)
+                audio_path = save_audio(args, config)
                 store_audio = not store_audio
-                return file_path
+                return audio_path

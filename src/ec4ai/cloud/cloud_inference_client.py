@@ -1,13 +1,18 @@
+from src.ec4ai.utils.audio_utils import load_audio
+
 import base64
 from subprocess import Popen
 from time import sleep, time
 
+import argparse
 import numpy as np
 import requests
 import torchaudio
 import torchaudio.transforms as T
 
-def cloud_inference_client(filename: str, n_trials=20):
+MAX_SAMPLING_RATE = 16_000
+
+def cloud_inference_client(audio_path: str, n_trials:int = 20):
     # Fix the CPU frequency to its maximum value (1.5 GHz)
     Popen(
         'sudo sh -c "echo performance >'
@@ -18,14 +23,9 @@ def cloud_inference_client(filename: str, n_trials=20):
     API_URL = (
         'https://72be983c-f0af-4fa7-846a-0f079e293e88.deepnoteproject.com/predict'
     )
-    x, sampling_rate = torchaudio.load(filename)
     
-    if sampling_rate > 16_000:
-        transform = T.Resample(sampling_rate, 16_000)
-        x = transform(x).copy()
-        sampling_rate = 16_000
-    
-    encoded = base64.b64encode(x.numpy().tobytes()).decode('utf-8')
+    audio_data, sampling_rate = load_audio(audio_path, MAX_SAMPLING_RATE)
+    encoded = base64.b64encode(audio_data.numpy().tobytes()).decode('utf-8')
 
     times = []
 
