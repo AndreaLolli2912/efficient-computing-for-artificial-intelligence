@@ -12,17 +12,13 @@ import torchaudio.transforms as T
 
 MAX_SAMPLING_RATE = 16_000
 
-def cloud_inference_client(audio_path: str, n_trials:int = 20):
+def cloud_inference_client(audio_path: str, api_url:str, n_trials:int = 20):
     # Fix the CPU frequency to its maximum value (1.5 GHz)
     Popen(
         'sudo sh -c "echo performance >'
         '/sys/devices/system/cpu/cpufreq/policy0/scaling_governor"',
         shell=True,
     ).wait()
-
-    API_URL = (
-        'https://72be983c-f0af-4fa7-846a-0f079e293e88.deepnoteproject.com/predict'
-    )
     
     audio_data, sampling_rate = load_audio(audio_path, MAX_SAMPLING_RATE)
     encoded = base64.b64encode(audio_data.numpy().tobytes()).decode('utf-8')
@@ -33,7 +29,7 @@ def cloud_inference_client(audio_path: str, n_trials:int = 20):
         start = time()
         try:
             response = requests.post(
-            API_URL, json={'input': encoded, 'sampling_rate': sampling_rate}
+            api_url, json={'input': encoded, 'sampling_rate': sampling_rate}
             )
             prediction = response.json()#['output']
             print(f'Prediction: {prediction}')
