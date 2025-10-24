@@ -9,6 +9,8 @@ import numpy as np
 import redis
 from scipy.io.wavfile import write
 import sounddevice as sd
+
+import torch
 from torchaudio import transforms as T
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
@@ -92,8 +94,12 @@ class CloudClient:
 
 class ModelManager:
     def __init__(self, logger):
-        self.processor = WhisperProcessor.from_pretrained("openai/whisper-tiny.en")
-        self.model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-tiny.en")
+        self.processor = WhisperProcessor.from_pretrained(
+            "openai/whisper-tiny.en"
+            )
+        self.model = WhisperForConditionalGeneration.from_pretrained(
+            "openai/whisper-tiny.en"
+            )
         self.logger = logger
 
         self.logger.info("model is OK.")
@@ -108,7 +114,9 @@ class ModelManager:
 class System:
     def __init__(self, args, logger):
         self.sensor = SensorManager(logger)
-        self.cloud = CloudClient(logger, args.host, args.port, args.user, args.password)
+        self.cloud = CloudClient(
+            logger, args.host, args.port, args.user, args.password
+            )
         self.model = ModelManager(logger)
         # self.vui = VUI()
         self.state = 0
@@ -120,11 +128,11 @@ class VUI():
     def __init__(self, logger, system, device: int = 1, channels: int = 1, dtype = "int16", samplerate: int = 48_000):
         self.audio_buffer = list()
         self.channels     = channels
-        self.device       = device 
+        self.device       = device
         self.dtype        = dtype
         self.logger       = logger
         self.samplerate   = samplerate
-        self.system       = system 
+        self.system       = system
 
         self.logger.info("vui ready")
 
@@ -154,7 +162,7 @@ class VUI():
             callback=self.callback):
             while True:
                 sd.sleep(1000)
-                audio_data = np.concatenate(self.audio_buffer, axis=0 ,dtype=self.dtype)
+                audio_data = np.concatenate(self.audio_buffer, axis=0 , dtype=self.dtype)
                 # fai tutto e pulisci
                 current_filename = "%f.wav"%time()
                 output_dir = "data/audio"
