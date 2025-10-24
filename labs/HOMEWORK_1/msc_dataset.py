@@ -52,7 +52,7 @@ class MSCDataset(torch.utils.data.Dataset):
                 - 'sampling_rate' (int): The sampling rate of the audio.
                 - 'label' (int): The integer label corresponding to the audio class.
         """ 
-        audio, sampling_rate = torchaudio.load(self.__filesPath[index][0], normalize=False)
+        audio, sampling_rate = torchaudio.load(self.__filesPath[index][0])
         
         return {
             'x': audio,

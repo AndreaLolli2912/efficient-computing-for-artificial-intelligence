@@ -105,7 +105,7 @@ class ModelManager:
         self.logger.info("model is OK.")
     
     def feed(self, X):
-        predicted_ids = self.model.generate(X)
+        predicted_ids = self.model.generate(self.processor(X, sampling_rate=16_000, return_tensors = "pt").input_features)
         transcription = self.processor.batch_decode(
             predicted_ids, skip_special_tokens=False
         )
@@ -137,14 +137,15 @@ class VUI():
         self.logger.info("vui ready")
 
     def _audio_pipeline(self):
+        audio_data = np.concatenate(self.audio_buffer, axis=0 , dtype=self.dtype)
         # convert the recorded audio to PyTorch tensor of type float32
-        audio_data = torch.tensor(self.audio_buffer, dtype=torch.float32)
+        audio_data = torch.tensor(audio_data, dtype=torch.float32)
         # change the data layout from channel-last to channel-first format
-        swapped_audio_data = torch.swap(audio_data, 0, 1)
+        swapped_audio_data = torch.swapdims(audio_data, 0, 1)
         # normalize the waveform values to the range [−1,1].
-        normalized_audio_data = swapped_audio_data / torch.pow(2, 15) # 2^{B-1} where B is the bit depth
+        normalized_audio_data = swapped_audio_data / 32_768 # 2^{B-1} where B = 16 is the bit depth
         # downsample the signal to 16kHz.
-        transform = T.Resample(self.samplerate, 16_00)
+        transform = T.Resample(self.samplerate, 16_000)
         downsampled_audio_data = transform(normalized_audio_data)
         # remove the channel dimension
         return torch.squeeze(downsampled_audio_data)
@@ -162,15 +163,12 @@ class VUI():
             callback=self.callback):
             while True:
                 sd.sleep(1000)
-                audio_data = np.concatenate(self.audio_buffer, axis=0 , dtype=self.dtype)
-                # fai tutto e pulisci
-                current_filename = "%f.wav"%time()
-                output_dir = "data/audio"
-                os.makedirs(output_dir, exist_ok=True)
-                audio_path = os.path.join(output_dir, current_filename)
-                write(audio_path, self.samplerate, audio_data)
-                self.audio_buffer.clear()
-                break
+                # audio_data = np.concatenate(self.audio_buffer, axis=0 , dtype=self.dtype)
+                X = self._audio_pipeline()
+                transcription = self.system.model.feed(X)
+                self.audio_buffer = []
+                print(transcription)
+                if "up" in set(map(str.lower, transcription)): break
 
 if __name__ == "__main__":
     logger = get_logger()
