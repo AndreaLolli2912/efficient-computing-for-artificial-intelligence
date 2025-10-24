@@ -92,11 +92,18 @@ class CloudClient:
 
 class ModelManager:
     def __init__(self, logger):
-        # self.processor = WhisperProcessor.from_pretrained("openai/whisper-tiny.en")
+        self.processor = WhisperProcessor.from_pretrained("openai/whisper-tiny.en")
         self.model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-tiny.en")
         self.logger = logger
 
         self.logger.info("model is OK.")
+    
+    def feed(self, X):
+        predicted_ids = self.model.generate(X)
+        transcription = self.processor.batch_decode(
+            predicted_ids, skip_special_tokens=False
+        )
+        return transcription
 
 class System:
     def __init__(self, args, logger):
@@ -133,7 +140,6 @@ class VUI():
         downsampled_audio_data = transform(normalized_audio_data)
         # remove the channel dimension
         return torch.squeeze(downsampled_audio_data)
-
 
     def callback(self, indata, frames, callback_time, status):
         self.audio_buffer.append(indata.copy())

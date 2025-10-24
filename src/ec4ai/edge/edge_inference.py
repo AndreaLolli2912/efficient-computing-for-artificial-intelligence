@@ -43,7 +43,7 @@ def edge_inference(audio_path: str, n_trials:int = 20):
         predicted_ids = model.generate(input_features = inputs.input_features)
 
         transcription = processor.batch_decode(
-            predicted_ids, skip_special_tokens=Falsecle
+            predicted_ids, skip_special_tokens=False
         )
 
         print(transcription)
