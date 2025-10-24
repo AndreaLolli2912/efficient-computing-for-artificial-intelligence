@@ -9,6 +9,7 @@ import numpy as np
 import redis
 from scipy.io.wavfile import write
 import sounddevice as sd
+from torchaudio import transforms as T
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 def get_logger():
@@ -118,7 +119,21 @@ class VUI():
         self.samplerate   = samplerate
         self.system       = system 
 
-        self.logger.info("vui ready") 
+        self.logger.info("vui ready")
+
+    def _audio_pipeline(self):
+        # convert the recorded audio to PyTorch tensor of type float32
+        audio_data = torch.tensor(self.audio_buffer, dtype=torch.float32)
+        # change the data layout from channel-last to channel-first format
+        swapped_audio_data = torch.swap(audio_data, 0, 1)
+        # normalize the waveform values to the range [−1,1].
+        normalized_audio_data = swapped_audio_data / torch.pow(2, 15) # 2^{B-1} where B is the bit depth
+        # downsample the signal to 16kHz.
+        transform = T.Resample(self.samplerate, 16_00)
+        downsampled_audio_data = transform(normalized_audio_data)
+        # remove the channel dimension
+        return torch.squeeze(downsampled_audio_data)
+
 
     def callback(self, indata, frames, callback_time, status):
         self.audio_buffer.append(indata.copy())
