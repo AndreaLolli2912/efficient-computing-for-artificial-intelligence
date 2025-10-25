@@ -21,17 +21,19 @@ x, _ = load('labs/HOMEWORK_1/audio/stop_0b40aa8e_nohash_0.wav')
 x = x.squeeze(0)
 
 
-name = 'tiny' # 'tiny', 'base', 'small', 'medium', 'large', 'largev2'    
+name = 'medium' # 'tiny', 'base', 'small', 'medium', 'large', 'largev2'    
 
 
 # Memory before loading the model
 print(f"Memory used: {Process(getpid()).memory_info().rss / (1024 ** 2):.2f} MB")
 
 
+# Solely loading the processor
 processor = WhisperProcessor.from_pretrained(f'openai/whisper-{name}.en')
-model = WhisperForConditionalGeneration.from_pretrained(f'openai/whisper-{name}.en')
+print(f"Memory used: {Process(getpid()).memory_info().rss / (1024 ** 2):.2f} MB")
 
-# Memory after loading the model
+model = WhisperForConditionalGeneration.from_pretrained(f'openai/whisper-{name}.en')
+# Memory after loading the model and the processor
 print(f"Memory used: {Process(getpid()).memory_info().rss / (1024 ** 2):.2f} MB")
 
 # Parameter count and approximate memory usage
@@ -54,8 +56,10 @@ for i in range(20):
     )
     times.append(time() - start)
     sleep(0.1)
+    if not i % 5:
+        print(f"Iteration {i:2d} \t Memory used: {Process(getpid()).memory_info().rss / (1024 ** 2):.2f} MB")
 
-print("\n"*2, "-"*50)
+print("\n"*3)
 print(f'Model: {name}')
 print(f'Latency: {median(times):.2f}+/-{std(times):.2f}s')
-print("\n"*3)
+print("\n"*2, "-"*50)
