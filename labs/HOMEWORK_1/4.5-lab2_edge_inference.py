@@ -1,9 +1,13 @@
 from subprocess import Popen
 from time import sleep, time
 
-import numpy as np
-import torchaudio
+from numpy import median, std
+from torchaudio import load
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
+
+# DELETE ME
+from os import getpid
+from psutil import Process
 
 # Fix the CPU frequency to its maximum value (1.5 GHz)
 Popen(
@@ -12,42 +16,46 @@ Popen(
     shell=True,
 ).wait()
 
-# Load model and processor
-
 # Load test WAV file
-filename = 'labs/HOMEWORK_1/audio/inferenceAudio/stop_0b40aa8e_nohash_0.wav'
-x, sampling_rate = torchaudio.load(filename)
+x, _ = load('labs/HOMEWORK_1/audio/stop_0b40aa8e_nohash_0.wav')
 x = x.squeeze(0)
 
 
-for name in [
-    # 'tiny', 
-    # 'base', 
-    # 'small', 
-    'medium', 
-    'large', 
-    'largev2'
-    ]:
-    model_name = f'openai/whisper-{name}.en'
+name = 'tiny' # 'tiny', 'base', 'small', 'medium', 'large', 'largev2'    
 
-    processor = WhisperProcessor.from_pretrained(model_name)
-    model = WhisperForConditionalGeneration.from_pretrained(model_name)
-    times = []
 
-    print(f"Running edge inference on model {model_name}...")
-    for i in range(20):
-        start = time()
-        predicted_ids = model.generate(
-            processor(
-            x, sampling_rate=16000, return_tensors="pt"
-            ).input_features)
-        transcription = processor.batch_decode(
-            predicted_ids, skip_special_tokens=False
-        )
-        times.append(time() - start)
-        sleep(0.1)
+# Memory before loading the model
+print(f"Memory used: {Process(getpid()).memory_info().rss / (1024 ** 2):.2f} MB")
+
+
+processor = WhisperProcessor.from_pretrained(f'openai/whisper-{name}.en')
+model = WhisperForConditionalGeneration.from_pretrained(f'openai/whisper-{name}.en')
+
+# Memory after loading the model
+print(f"Memory used: {Process(getpid()).memory_info().rss / (1024 ** 2):.2f} MB")
+
+# Parameter count and approximate memory usage
+total_params = sum(p.numel() for p in model.parameters())
+print(f"Total parameters: {total_params:,}")
+print(f"Approx. memory: {total_params * 4 / (1024 ** 2):.2f} MB")  # assuming 32-bit floats    
+
+
     
-    print("\n"*2, "-"*50)
-    print(f'Model: {model_name}')
-    print(f'Latency: {np.median(times):.2f}+/-{np.std(times):.2f}s')
-    print("\n"*3)
+print(f"Running edge inference on model {name}...")
+times = []
+for i in range(20):
+    start = time()
+    predicted_ids = model.generate(
+        processor(
+        x, sampling_rate=16000, return_tensors="pt"
+        ).input_features)
+    transcription = processor.batch_decode(
+        predicted_ids, skip_special_tokens=False
+    )
+    times.append(time() - start)
+    sleep(0.1)
+
+print("\n"*2, "-"*50)
+print(f'Model: {name}')
+print(f'Latency: {median(times):.2f}+/-{std(times):.2f}s')
+print("\n"*3)
