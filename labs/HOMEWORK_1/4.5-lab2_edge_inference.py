@@ -21,8 +21,7 @@ x, _ = load('labs/HOMEWORK_1/audio/stop_0b40aa8e_nohash_0.wav')
 x = x.squeeze(0)
 
 
-name = 'medium' # 'tiny', 'base', 'small', 'medium', 'large', 'largev2'    
-
+name = 'tiny' # 'tiny', 'base', 'small', 'medium', 'large', 'largev2'    
 
 # Memory before loading the model
 print(f"Memory used: {Process(getpid()).memory_info().rss / (1024 ** 2):.2f} MB")
@@ -45,6 +44,17 @@ print(f"Approx. memory: {total_params * 4 / (1024 ** 2):.2f} MB")  # assuming 32
     
 print(f"Running edge inference on model {name}...")
 times = []
+print("Starting burnt period...")
+for _ in range(15):
+    _ = processor.batch_decode(
+        model.generate(
+        processor(
+        x, sampling_rate=16000, return_tensors="pt"
+        ).input_features), 
+        skip_special_tokens=False
+    )
+
+print("Finished burnt period, starting evaluation...")
 for i in range(20):
     start = time()
     predicted_ids = model.generate(
