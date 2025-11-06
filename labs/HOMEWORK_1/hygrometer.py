@@ -2,7 +2,7 @@ import collections
 import logging
 import queue
 import re
-import threading
+import multiprocessing as mp
 import time
 
 import adafruit_dht
@@ -26,24 +26,16 @@ SAMPLERATE = 48_000
 # system state vars
 ENABLED, DISABLED = 1, 0
 
-def get_logger():
-    # instantiate logger
-    logger = logging.getLogger(__name__)
+def get_logger(name=__name__):
+    logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
-
-    # define handler and formatter
     handler = logging.StreamHandler()
     formatter = logging.Formatter(
         "%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(message)s"
     )
-
-    # add formatter to handler
     handler.setFormatter(formatter)
-
-    # add handler to logger
     if not logger.handlers:
         logger.addHandler(handler)
-
     return logger
 
 def get_cli():
@@ -94,24 +86,16 @@ class AudioPreprocessor:
     
     def __call__(self, arr_int16):
         """arr_int16 : np.array (48_000, ), dtype = 'int16' """
-        # Convert the recorded audio to a PyTorch tensor of type float32.
         x = torch.tensor(arr_int16, dtype=torch.float32)
-        # print(x.min(), x.max(), x.mean())
-        # Change the data layout from channel-last to channel-first format.
-        # Normalize the waveform values to the range [−1,1].
         x = x / 32_768.0
-        # print(x.min(), x.max(), x.mean())
-        # Downsample the signal to 16kHz.
         x_16k = self.resample(x)
-        # Remove the channel dimension.
         return x_16k
 
 class WhisperModel:
     def __init__(self, logger):
-        self.logger    = logger
-        self.model     = WhisperForConditionalGeneration.from_pretrained("openai/whisper-tiny.en")
+        self.logger = logger
+        self.model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-tiny.en")
         self.processor = WhisperProcessor.from_pretrained("openai/whisper-tiny.en")
-
         self.logger.info("whisper model loaded")
 
     def __call__(self, x_16):
@@ -123,7 +107,6 @@ class WhisperModel:
         return transcription
 
 class CommandRecognizer:
-
     def sanitize(self, text):
         return re.sub(r'[^a-z0-9\s]', '', text.strip().lower())
 
@@ -136,43 +119,60 @@ class CommandRecognizer:
         return None
 
 class VUI:
-    def __init__(self, logger, on_command, **vui_kwargs):
-        self.logger     = logger
-        self.on_command = on_command # callback for command events from system class
+    def __init__(self, logger, command_queue, **vui_kwargs):
+        self.logger = logger
+        self.command_queue = command_queue  # For sending commands to main process
 
-        self.channels   = vui_kwargs["channels"]
-        self.device     = vui_kwargs["device"]        
-        self.dtype      = vui_kwargs["dtype"]
+        self.channels = vui_kwargs["channels"]
+        self.device = vui_kwargs["device"]        
+        self.dtype = vui_kwargs["dtype"]
         self.samplerate = vui_kwargs["samplerate"]
 
         # inject components
-        self.asr          = WhisperModel(self.logger)
-        self.capture      = AudioCapture(self.samplerate)
+        self.asr = WhisperModel(self.logger)
+        self.capture = AudioCapture(self.samplerate)
         self.preprocessor = AudioPreprocessor(sr_in=self.samplerate, sr_out=16_000)
-        self.recog        = CommandRecognizer()
+        self.recog = CommandRecognizer()
 
         # queue for 1s audio chunks
-        self._audio_queue = queue.Queue(maxsize=2)
+        self._audio_queue = mp.Queue(maxsize=2)
 
-        # thread controll
-        self._stop = threading.Event()
-        self._capture_thread = threading.Thread(target=self._capture_loop) #, daemon=True
-        self._process_thread = threading.Thread(target=self._process_loop) #, daemon=True
+        # process control
+        self._stop = mp.Event()
+        self._capture_process = None
+        self._process_process = None
 
         self.logger.info("vui ready")
     
     def start(self):
-        self._capture_thread.start()
-        self._process_thread.start()
+        self._capture_process = mp.Process(target=self._capture_loop)
+        self._process_process = mp.Process(target=self._process_loop)
+        
+        self._capture_process.start()
+        self._process_process.start()
 
     def stop(self):
         self._stop.set()
-        self._capture_thread.join(timeout=2.0)
-        self._process_thread.join(timeout=2.0)
+        
+        if self._capture_process:
+            self._capture_process.join(timeout=2.0)
+            if self._capture_process.is_alive():
+                self._capture_process.terminate()
+                
+        if self._process_process:
+            self._process_process.join(timeout=2.0)
+            if self._process_process.is_alive():
+                self._process_process.terminate()
 
     def _capture_loop(self):
-        self.logger.info("vui recording started")
+        # Re-initialize logger in subprocess
+        logger = get_logger('vui.capture')
+        logger.info("vui recording started")
+        
+        # Create capture object in this process
+        capture = AudioCapture(self.samplerate)
         next_tick = time.time()
+        
         with sd.InputStream(
             samplerate=self.samplerate,
             device=self.device,
@@ -180,69 +180,130 @@ class VUI:
             blocksize=0,
             dtype=self.dtype,
             latency="low",
-            callback=self.capture.callback):
+            callback=capture.callback):
+            
             while not self._stop.is_set():
                 now = time.time()
-                if now > next_tick:
-                    chunk = self.capture.get_last_second()
-                    next_tick += 1.0 # add 1 second
+                if now >= next_tick:
+                    chunk = capture.get_last_second()
+                    next_tick += 1.0
                     if chunk is not None:
-                        if self._audio_queue.full():
-                            self.logger.info("queue full")
+                        try:
+                            self._audio_queue.put(chunk, block=False)
+                        except:
+                            # Drop oldest if queue full
                             try:
                                 _ = self._audio_queue.get_nowait()
-                            except queue.Empty:
+                                self._audio_queue.put(chunk, block=False)
+                            except:
                                 pass
-                        try:
-                            self.logger.info("Adding new shits")
-                            self._audio_queue.put_nowait(chunk)
-                        except queue.Full:
-                            pass
-                # time.sleep(0.005)
+                time.sleep(0.01)
     
     def _process_loop(self):
-        self.logger.info("vui preprocessing started")
+        # Re-initialize components in subprocess
+        logger = get_logger('vui.process')
+        logger.info("vui preprocessing started")
+        
+        # Create model objects in this process
+        asr = WhisperModel(logger)
+        preprocessor = AudioPreprocessor(sr_in=self.samplerate, sr_out=16_000)
+        recog = CommandRecognizer()
+        
         cooldown_until = 0.0
+        
         while not self._stop.is_set():
             try:
                 chunk = self._audio_queue.get(timeout=0.5)
-                print(chunk[:10])
-                print(chunk.max(), chunk.min(), chunk.mean())
-                print("#" * 100)
-            except queue.Empty:
+            except:
                 continue
 
             # Pipeline: preprocess -> ASR -> sanitize -> detect
-            x_16k = self.preprocessor(chunk)
-            self.logger.info(x_16.min(), x_16.max(), x_16k.mean(), x_16k.shape)
-            print("#" * 100)
-            transcription = self.asr(x_16k)
-            clean = self.recog.sanitize(transcription)
-            cmd = self.recog.detect(clean)
+            x_16k = preprocessor(chunk)
+            transcription = asr(x_16k)
+            clean = recog.sanitize(transcription)
+            cmd = recog.detect(clean)
 
-            self.logger.info("vui command is %s"%clean) #NOTE
+            logger.info("vui transcription: %s" % clean)
             now = time.time()
             if cmd and now > cooldown_until:
-                self.logger.info("vui command:%s"%cmd)
-                # emit command via callback
-                self.on_command(cmd)
+                logger.info("vui command: %s" % cmd)
+                # Send command to main process via queue
+                try:
+                    self.command_queue.put(cmd, block=False)
+                except:
+                    pass
                 cooldown_until = now + 1.0
-            
-            self._audio_queue.task_done()
 
 class SensorManager:
-    def __init__(self, logger):
+    def __init__(self, logger, state_value, state_lock, stop_event, args):
         self.logger = logger
-        self.device = adafruit_dht.DHT11(D4)
+        self.state_value = state_value
+        self.state_lock = state_lock
+        self.stop_event = stop_event
+        self.args = args
+        
+        # Process reference
+        self._sensor_process = None
+        
+        self.logger.info("sensor manager ready")
+    
+    def start(self):
+        self._sensor_process = mp.Process(target=self._sensor_loop)
+        self._sensor_process.start()
+    
+    def stop(self):
+        self.stop_event.set()
+        if self._sensor_process:
+            self._sensor_process.join(timeout=2.0)
+            if self._sensor_process.is_alive():
+                self._sensor_process.terminate()
 
-        self.logger.info("sensor ready")
-
-    def read(self):
-        while True:
-            temperature = self.device.temperature
-            humidity    = self.device.humidity
-            if temperature is not None and humidity is not None:
-                    return {"temperature": temperature, "humidity": humidity}
+    def _sensor_loop(self):
+        # Re-initialize components in subprocess
+        logger = get_logger('sensor')
+        logger.info("sensor process started")
+        
+        # Initialize hardware in this process
+        device = adafruit_dht.DHT11(D4)
+        
+        # Initialize cloud client in this process
+        try:
+            client = redis.Redis(
+                host=self.args.host,
+                port=self.args.port,
+                username=self.args.user,
+                password=self.args.password
+            )
+            assert client.ping(), "Failed to connect to Redis"
+            logger.info("cloud ready")
+        except Exception as e:
+            logger.error(f"Redis connection failed: {e}")
+            client = None
+        
+        next_sample = time.time()
+        
+        while not self.stop_event.is_set():
+            now = time.time()
+            
+            # Check state
+            with self.state_lock:
+                current_state = self.state_value.value
+            
+            if current_state == ENABLED and now >= next_sample:
+                next_sample += 5.0
+                try:
+                    temperature = device.temperature
+                    humidity = device.humidity
+                    if temperature is not None and humidity is not None:
+                        record = {"temperature": temperature, "humidity": humidity}
+                        logger.info(f"sensor reading: {record}")
+                        # Optionally store to Redis
+                        # if client:
+                        #     client.set(f"sensor:{int(now)}", str(record))
+                except RuntimeError as e:
+                    logger.warning(f"sensor read error: {e}")
+            
+            time.sleep(0.1)
 
 class CloudClient:
     def __init__(self, logger, host: str, port: int, user: str, password: str):
@@ -254,8 +315,6 @@ class CloudClient:
             password=password
         )
         assert self.client.ping(), "Failed to connect to Redis"
-        
-
         self.logger.info("cloud ready")
 
     def store(self, key: str, value):
@@ -263,71 +322,77 @@ class CloudClient:
         # self.client.set(key, value)
 
 class System:
-
     def __init__(self, args, logger, **kwargs):
-        
         self.logger = logger
-        self.state = DISABLED
-        self._lock = threading.Lock()
-        self._stop = threading.Event()
+        self.args = args
+        
+        # Shared state using multiprocessing primitives
+        self.state_value = mp.Value('i', DISABLED)
+        self.state_lock = mp.Lock()
+        self._stop = mp.Event()
+        
+        # Command queue for VUI -> System communication
+        self.command_queue = mp.Queue(maxsize=5)
 
-        # vui
-        self.vui = VUI(self.logger, self._handle_command, **kwargs)
+        # VUI with command queue
+        self.vui = VUI(self.logger, self.command_queue, **kwargs)
 
-        # sensor and cloud
-        self.sensor = SensorManager(logger)
-        self.cloud = CloudClient(logger, args.host, args.port, args.user, args.password)
-
-        # sensor thread
-        self._sensor_thread = threading.Thread(target=self._sensor_loop) #, daemon=True
+        # Sensor manager
+        self.sensor = SensorManager(self.logger, self.state_value, 
+                                    self.state_lock, self._stop, args)
 
         self.logger.info("system ready")
     
     def get_state(self):
-        with self._lock:
-            return self.state
+        with self.state_lock:
+            return self.state_value.value
 
     def set_state(self, state):
-        with self._lock:
-            self.state = state
+        with self.state_lock:
+            self.state_value.value = state
 
     def run(self):
         self.vui.start()
-        self._sensor_thread.start()
+        self.sensor.start()
+        
+        self.logger.info("system running")
+        
+        # Main loop: handle commands from VUI
+        while not self._stop.is_set():
+            try:
+                cmd = self.command_queue.get(timeout=0.5)
+                self._handle_command(cmd)
+            except:
+                continue
 
     def stop(self):
+        self.logger.info("stopping system...")
         self._stop.set()
         self.vui.stop()
-        self._sensor_thread.join(timeout=2.0)
+        self.sensor.stop()
+        self.logger.info("system stopped")
 
     def _handle_command(self, cmd):
-        """Called by VUI when 'up' or 'stop' detected."""
+        """Called when 'up' or 'stop' detected."""
         if cmd == "up":
             self.set_state(ENABLED)
             self.logger.info("system: UP -> ENABLED")
         elif cmd == "stop":
             self.set_state(DISABLED)
             self.logger.info("system: STOP -> DISABLED")
-    
-    def _sensor_loop(self):
-        next_sample = time.time()
-        while not self._stop.is_set():
-            now = time.time()
-            if self.get_state() == ENABLED and now >= next_sample:
-                next_sample += 5.0
-                record = self.sensor.read()
-                print(record)
-    
+
 if __name__ == "__main__":
+    # Set multiprocessing start method (important for library compatibility)
+    mp.set_start_method('spawn')
+    
     logger = get_logger()
     # Retrieve arguments from command line interface
     args = get_cli()
     # Initialize the system and configure the audio acquisition
-    # system = System(args, logger)
     vui_kwargs = {
-        "channels"  : CHANNELS, 
-        "device"    : DEVICE,
-        "dtype"     : BIT_DEPTH,
+        "channels": CHANNELS, 
+        "device": DEVICE,
+        "dtype": BIT_DEPTH,
         "samplerate": SAMPLERATE,
     }
 
