@@ -76,12 +76,11 @@ def callback(indata, frames, time, status):
     # Transcribe the output, removing spaces and punctuation.
     transcription = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
     transcription = re.sub(r'[^a-z0-9\s]', '', transcription.strip().lower())
-    logger.info(f"Transcription: '{transcription}'")
     # control logic
-    if transcription == "up":
+    if transcription == "up" and system_state == DISABLED:
         system_state = ENABLED
         logger.info("Voice command detected: ENABLE data collection")
-    elif transcription == "stop":
+    elif transcription == "stop" and system_state == ENABLED:
         system_state = DISABLED
         logger.info("Voice command detected: DISABLE data collection")
 
@@ -138,26 +137,24 @@ if __name__ == "__main__":
                     timestamp = time.time()
                     timestamp_ms = int(timestamp * 1000) # Convert Unix time in milliseconds and cast it to integer
                     try:
-                        temperature = dht_device.temperature
-                        humidity    = dht_device.humidity
-                        logger.info(f"Reading -> Temp: {temperature}  Humidity: {humidity}")
+                        temperature = float(dht_device.temperature)
+                        humidity    = float(dht_device.humidity)
+                        logger.info(f"Reading: Temperature: {temperature} | Humidity: {humidity}")
                     except:
                         logger.warning("Sensor read failure")
-
-                    
-
+                        continue
                     try:
-                        redis_client.ts().create("{%s}temperature"%mac_address)
+                        redis_client.ts().create(f"{mac_address}:temperature")
                     except redis.ResponseError:
                         pass
                     
                     try:
-                        redis_client.ts().create("{%s}humidity"%mac_address)
+                        redis_client.ts().create(f"{mac_address}:humidity")
                     except redis.ResponseError:
                         pass
                     
-                    redis_client.ts().add("temperature", timestamp_ms, temperature)
-                    redis_client.ts().add("humidity",    timestamp_ms, humidity   )
+                    redis_client.ts().add(f"{mac_address}:temperature", timestamp_ms, temperature)
+                    redis_client.ts().add(f"{mac_address}:humidity",    timestamp_ms, humidity   )
                     logger.info("Uploaded to Redis timestamp=%d", timestamp_ms)
 
                 except Exception as e:
