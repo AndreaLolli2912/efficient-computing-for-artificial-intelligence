@@ -1,10 +1,11 @@
 import argparse
-import hex
+import logging
 import re
+import time
 import uuid
 
 import adafruit_dht
-from board import D4 as D4
+from board import D4
 import redis
 import torch
 import torchaudio
@@ -71,32 +72,42 @@ def callback(indata, frames, time, status):
     # Feed the resulting tensor to the Whisper pipeline.
     inputs = processor(waveform_16k, sampling_rate=16_000, return_tensors="pt")
     input_features = inputs.input_features
-    print("input_features.shape", input_features.shape)
     generated_ids = model.generate(input_features)
-    print("generated_ids.shape", generated_ids.shape)
     # Transcribe the output, removing spaces and punctuation.
     transcription = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
     transcription = re.sub(r'[^a-z0-9\s]', '', transcription.strip().lower())
-    print("transcription", transcription)
+    logger.info(f"Transcription: '{transcription}'")
     # control logic
     if transcription == "up":
         system_state = ENABLED
-        print("up")
+        logger.info("Voice command detected: ENABLE data collection")
     elif transcription == "stop":
         system_state = DISABLED
-        print("down")
+        logger.info("Voice command detected: DISABLE data collection")
 
 if __name__ == "__main__":
+    
+    logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S"
+    )
+
+    logger = logging.getLogger(__name__)
 
     args = get_cli()
 
     # Initialize the DHT-11 sensor to collect temperature and humidity data.
+    mac_address = hex(uuid.getnode())
+    logger.info("Initializing DHT-11 sensor...")
     dht_device = adafruit_dht.DHT11(D4)
-
+    
     # Establish a connection to the Redis Cloud database using the redis-py API.
+    logger.info("Connecting to Redis...")
     redis_client = establish_cloud_connection(args)
 
     # Load the pretrained Whisper tiny model for voice command recognition.
+    logger.info("Loading Whisper tiny model...")
     model, processor = load_whisper_model()
 
     # Set the system state to disabled (data collection off).
@@ -109,6 +120,7 @@ if __name__ == "__main__":
     SAMPLING_RATE = 48_000
 
     # Implement command recognition.
+    logger.info("Starting audio stream...")
     with sd.InputStream(
         samplerate=SAMPLING_RATE,
         blocksize=48_000,
@@ -117,32 +129,39 @@ if __name__ == "__main__":
         dtype=BIT_DEPTH,
         callback=callback
     ):
+        last_read_time = 0
         while True:
-            mac_address = hex(uuid.getnode())
-            if system_state == ENABLED:
+            now = time.time()
+            if system_state == ENABLED and now - last_read_time >= 5:
+                last_read_time = now
                 try:
                     timestamp = time.time()
-                    timestamp = int(timestamp * 1000) # Convert Unix time in milliseconds and cast it to integer
+                    timestamp_ms = int(timestamp * 1000) # Convert Unix time in milliseconds and cast it to integer
+                    try:
+                        temperature = dht_device.temperature
+                        humidity    = dht_device.humidity
+                        logger.info(f"Reading -> Temp: {temperature}  Humidity: {humidity}")
+                    except:
+                        logger.warning("Sensor read failure")
 
-                    temperature = dht_device.temperature
-                    humidity = dht_device.humidity
+                    
 
                     try:
-                        redis_client.ts().create('temperature')
+                        redis_client.ts().create("{%s}temperature"%mac_address)
                     except redis.ResponseError:
                         pass
                     
                     try:
-                        redis_client.ts().create("humidity")
+                        redis_client.ts().create("{%s}humidity"%mac_address)
                     except redis.ResponseError:
                         pass
                     
-                    redis_client.ts().add("temperatue", timestamp, temperature)
-                    redis_client.ts().add("humidity",   timestamp, humidity   )
-                    
-                    time.sleep(5)
-                except:
-                    dht_device.exit()
-                    dht_device = adafruit_dht.DHT11(D4)
+                    redis_client.ts().add("temperature", timestamp_ms, temperature)
+                    redis_client.ts().add("humidity",    timestamp_ms, humidity   )
+                    logger.info("Uploaded to Redis timestamp=%d", timestamp_ms)
+
+                except Exception as e:
+                    logger.error(f"Unexpected error in main loop: {e}")
+                    continue
             elif system_state == DISABLED:
                 continue
