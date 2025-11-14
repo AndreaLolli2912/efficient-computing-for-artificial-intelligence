@@ -21,7 +21,7 @@ x, _ = load('labs/HOMEWORK_1/audio/stop_0b40aa8e_nohash_0.wav')
 x = x.squeeze(0)
 
 
-name = 'tiny' # 'tiny', 'base', 'small', 'medium', 'large', 'largev2'    
+name = 'small' # 'tiny', 'base', 'small', 'medium', 'large', 'largev2'    
 
 # Memory before loading the model
 print(f"Memory used: {Process(getpid()).memory_info().rss / (1024 ** 2):.2f} MB")

@@ -71,16 +71,20 @@ def callback(indata, frames, time, status):
     # Feed the resulting tensor to the Whisper pipeline.
     inputs = processor(waveform_16k, sampling_rate=16_000, return_tensors="pt")
     input_features = inputs.input_features
+    print("input_features.shape", input_features.shape)
     generated_ids = model.generate(input_features)
+    print("generated_ids.shape", generated_ids.shape)
     # Transcribe the output, removing spaces and punctuation.
     transcription = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
     transcription = re.sub(r'[^a-z0-9\s]', '', transcription.strip().lower())
-    print(transcription)
+    print("transcription", transcription)
     # control logic
     if transcription == "up":
         system_state = ENABLED
+        print("up")
     elif transcription == "stop":
         system_state = DISABLED
+        print("down")
 
 if __name__ == "__main__":
 
