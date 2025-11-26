@@ -8,38 +8,21 @@ class MSCDataset(torch.utils.data.Dataset):
         
         Args:
             dataPath (str): Path to the dataset file.
-            classes (list[str]): List of class labels.
+            classes (list[str]): List of class labels to be mapped to integers starting from 0.
         """
         super(MSCDataset, self).__init__()
+        # Storing the classes
         self.__classes = classes
         
         # creating the dictionary associating name label to integer index
         self.__convertedLabels:dict[str, int] = {label.strip().lower():i for i,label in enumerate(classes)}
+        
         # listing all the files in the dataset path along with the converted label, accounting only for .wav files that starts with a valid label
         # sorting by folder name to ensure consistent ordering of samples
         self.__filesPath:list[list[str, int]] = sorted([[os.path.join(dataPath, file), self.__convertedLabels[file.split("_")[0].strip().lower()]] 
                                                 for file in os.listdir(dataPath) if file.endswith(".wav") and file.split("_")[0].strip().lower() in self.__convertedLabels], 
                                                     key=lambda x: os.path.split(x[0])[0]) 
         
-    @property
-    def classes(self)->list[str]:
-        """Get the list of class labels.
-
-        Returns:
-            classes (list[str]): List of class labels.
-        """
-        return list(self.__classes)
-    
-    
-    def __len__(self)->int:
-        """Return the total number of samples in the dataset.
-        
-        Returns:
-            Number of samples (int): Total number of samples.
-        """
-        return len(self.__filesPath)
-
-
     def __getitem__(self, index:int)->dict[str, int|torch.Tensor]:
         """Retrieve a sample from the dataset at the specified index.
         
@@ -60,6 +43,34 @@ class MSCDataset(torch.utils.data.Dataset):
             'label': self.__filesPath[index][1]
         }
     
+    def __len__(self)->int:
+        """Return the total number of samples in the dataset.
+        
+        Returns:
+            Number of samples (int): Total number of samples.
+        """
+        return len(self.__filesPath)
+    
+
+    @property
+    def classes(self)->list[str]:
+        """Get the list of class labels.
+
+        Returns:
+            classes (list[str]): List of class labels.
+        """
+        return list(self.__classes)
+    
+    @property
+    def convertedLabels(self)-> dict [int,str]:
+        """Get the mapping of integer labels to string labels.
+        
+        Returns:
+            convertedLabels (dict[int, str]): A dictionary mapping integer labels to string labels.
+        """
+        return dict(self.__convertedLabels)
+    
+    
     def label_to_int(self, label:str)->int:
         """Convert a string label to its corresponding integer label.
         
@@ -68,14 +79,6 @@ class MSCDataset(torch.utils.data.Dataset):
         """
         return self.__convertedLabels[label.strip().lower()]
     
-    
-    def getConvertedLabels(self)-> dict [int,str]:
-        """Get the mapping of integer labels to string labels.
-        
-        Returns:
-            convertedLabels (dict[int, str]): A dictionary mapping integer labels to string labels.
-        """
-        return dict(self.__convertedLabels)
     
     def getInvertedConvertedLabels(self)->dict[str, int]:
         """Get the mapping of string labels to integer labels.
