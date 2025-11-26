@@ -77,10 +77,10 @@ def callback(indata, frames, time, status):
     transcription = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
     transcription = re.sub(r'[^a-z0-9\s]', '', transcription.strip().lower())
     # control logic
-    if transcription == "up" and system_state == DISABLED:
+    if "up" in transcription and system_state == DISABLED:
         system_state = ENABLED
         logger.info("Voice command detected: ENABLE data collection")
-    elif transcription == "stop" and system_state == ENABLED:
+    elif "stop" in transcription and system_state == ENABLED:
         system_state = DISABLED
         logger.info("Voice command detected: DISABLE data collection")
 
@@ -89,8 +89,7 @@ if __name__ == "__main__":
     logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S"
-    )
+    datefmt="%H:%M:%S")
 
     logger = logging.getLogger(__name__)
 
@@ -104,6 +103,16 @@ if __name__ == "__main__":
     # Establish a connection to the Redis Cloud database using the redis-py API.
     logger.info("Connecting to Redis...")
     redis_client = establish_cloud_connection(args)
+    # Time series creation
+    try:
+        redis_client.ts().create(f"{mac_address}:temperature")
+    except redis.ResponseError:
+        pass # Time series already exists
+    
+    try:
+        redis_client.ts().create(f"{mac_address}:humidity")
+    except redis.ResponseError:
+        pass # Time series already exists
 
     # Load the pretrained Whisper tiny model for voice command recognition.
     logger.info("Loading Whisper tiny model...")
@@ -122,7 +131,7 @@ if __name__ == "__main__":
     logger.info("Starting audio stream...")
     with sd.InputStream(
         samplerate=SAMPLING_RATE,
-        blocksize=48_000,
+        blocksize=48_000, # calls 'callback function every 1s'
         device=1,
         channels=CHANNELS,
         dtype=BIT_DEPTH,
@@ -130,35 +139,26 @@ if __name__ == "__main__":
     ):
         last_read_time = 0
         while True:
-            now = time.time()
-            if system_state == ENABLED and now - last_read_time >= 5:
-                last_read_time = now
+            if system_state == ENABLED:
                 try:
                     timestamp = time.time()
                     timestamp_ms = int(timestamp * 1000) # Convert Unix time in milliseconds and cast it to integer
-                    try:
-                        temperature = float(dht_device.temperature)
-                        humidity    = float(dht_device.humidity)
-                        logger.info(f"Reading: Temperature: {temperature} | Humidity: {humidity}")
-                    except:
-                        logger.warning("Sensor read failure")
-                        continue
-                    try:
-                        redis_client.ts().create(f"{mac_address}:temperature")
-                    except redis.ResponseError:
-                        pass
-                    
-                    try:
-                        redis_client.ts().create(f"{mac_address}:humidity")
-                    except redis.ResponseError:
-                        pass
+
+                    temperature = float(dht_device.temperature)
+                    humidity    = float(dht_device.humidity)
+                    logger.info(f"Reading: Temperature: {temperature} | Humidity: {humidity}")
                     
                     redis_client.ts().add(f"{mac_address}:temperature", timestamp_ms, temperature)
                     redis_client.ts().add(f"{mac_address}:humidity",    timestamp_ms, humidity   )
                     logger.info("Uploaded to Redis timestamp=%d", timestamp_ms)
+                    
+                    time.sleep(5)
 
                 except Exception as e:
-                    logger.error(f"Unexpected error in main loop: {e}")
+                    logger.warning("Sensor read failure")
+                    dht_device.exit()
+                    dht_device = adafruit_dht.DHT11(D4)
                     continue
+
             elif system_state == DISABLED:
                 continue
