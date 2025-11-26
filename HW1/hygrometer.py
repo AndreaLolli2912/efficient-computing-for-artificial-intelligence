@@ -17,25 +17,21 @@ def get_cli():
     parser.add_argument(
         "--host",
         type=str,
-        default="redis-15750.c135.eu-central-1-1.ec2.redns.redis-cloud.com",
         help="Redis Cloud host."
     )
     parser.add_argument(
         "--port",
         type=int,
-        default=15750,
         help="Redis Cloud port."
     )
     parser.add_argument(
         "--user",
         type=str,
-        default="default",
         help="Redis Cloud username."
     )
     parser.add_argument(
         "--password",
         type=str,
-        default="r35F7Gez05k66A86KA9JcSfqdZL9ekrG",
         help="Redis Cloud password."
     )
     return parser.parse_args()
