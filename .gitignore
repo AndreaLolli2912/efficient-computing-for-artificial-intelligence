@@ -1,5 +1,6 @@
 # Ignore data folder
 /data/
+**/data/
 
 # Ignore VSCode settings
 .vscode/
