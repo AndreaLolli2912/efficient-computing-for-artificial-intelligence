@@ -1,18 +1,25 @@
 import argparse
 import logging
-import re
 import time
 import uuid
+import os
+import zipfile
+import numpy as np
+
+
+# TODO: REMOVE DEFAULT ARGUMENTS BEFORE SUBMISSION
+# TODO: CHANGE 'ENABLE THRESHOLD' VALUE BEFORE SUBMISSION FROM 0.99 TO 0.999
 
 import adafruit_dht
 from board import D4
 import redis
-import torch
-import torchaudio
-from transformers import WhisperForConditionalGeneration, WhisperProcessor
+import torch, torchaudio
 import sounddevice as sd
 
-def get_cli():
+from onnxruntime import InferenceSession
+
+
+def get_cli()->argparse.Namespace:
     """Parse command-line arguments.
     
     Returns:
@@ -22,24 +29,29 @@ def get_cli():
     parser.add_argument(
         "--host",
         type=str,
-        help="Redis Cloud host."
+        help="Redis Cloud host.",
+        default="redis-13420.c328.europe-west3-1.gce.cloud.redislabs.com"
     )
     parser.add_argument(
         "--port",
         type=int,
-        help="Redis Cloud port."
+        help="Redis Cloud port.",
+        default=13420
     )
     parser.add_argument(
         "--user",
         type=str,
-        help="Redis Cloud username."
+        help="Redis Cloud username.",
+        default="default"
     )
     parser.add_argument(
         "--password",
         type=str,
-        help="Redis Cloud password."
+        help="Redis Cloud password.",
+        default='MJle7B18tdGimLEbiiDOLk1qN3e4o9J8'
     )
     return parser.parse_args()
+
 
 def establish_cloud_connection(args):
     """Establish a connection to Redis Cloud.
@@ -64,21 +76,33 @@ def establish_cloud_connection(args):
 
     return redis_client
 
-def load_whisper_model(model_name:str='openai/whisper-tiny.en'):
-    """Load the pretrained Whisper model and processor.
+
+def loadFrontendAndModel(frontendPath:str, modelPath:str):
+    """Load the custom Key Word Spotting model and the expected frontend.
     
     Args:
-        model_name (str): The name of the pretrained Whisper model. Defaults to 'openai/whisper-tiny.en'.
+        frontendPath (str): The path to the frontend model.
+        modelPath (str): The path to the custom KWS model.
         
     Returns:
-        model (WhisperForConditionalGeneration): The loaded Whisper model.
-        processor (WhisperProcessor): The loaded Whisper processor.
+        frontend (InferenceSession): The loaded frontend model.
+        model (InferenceSession): The loaded custom KWS model.
     """
-    model = WhisperForConditionalGeneration.from_pretrained(model_name)
-    processor = WhisperProcessor.from_pretrained(model_name)
-    return model, processor
+    if not os.path.exists(frontendPath):
+        raise FileNotFoundError(f"Frontend model not found at {frontendPath}")
+    
+    if not  os.path.exists(modelPath):
+        raise FileNotFoundError(f"Custom KWS model not found at {modelPath}")
+    
+    if modelPath.lower().endswith(".zip"):
+        with zipfile.ZipFile(modelPath, "r") as z:
+            modelPath = z.namelist()[0]
+            z.extract(modelPath, ".")   
+    
+    return InferenceSession(frontendPath), InferenceSession(modelPath)
 
-def callback(indata, frames, time, status):
+
+def callback(indata, frames, time, status, EnableThreshold=0.99):
     global system_state
     
     # Convert the recorded audio to a PyTorch tensor of type float32.
@@ -93,28 +117,31 @@ def callback(indata, frames, time, status):
     # Downsample the signal to 16kHz.
     waveform_16k = torchaudio.functional.resample(waveform_norm, SAMPLING_RATE, 16_000)
     
-    # Remove the channel dimension.
-    waveform_16k = torch.squeeze(waveform_16k)
+    inputs = frontend.run(None, {"input": np.expand_dims(waveform_16k.numpy(), axis=0)})[0]
+    outputs = model.run(None, {"input": inputs})[0][0]
     
-    # Feed the resulting tensor to the Whisper pipeline.
-    inputs = processor(waveform_16k, sampling_rate=16_000, return_tensors="pt")
-    input_features = inputs.input_features
-    generated_ids = model.generate(input_features)
     
-    # Transcribe the output, removing spaces and punctuation.
-    transcription = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
-    transcription = re.sub(r'[^a-z0-9\s]', '', transcription.strip().lower())
+    exp = np.exp(outputs)
+    
+    pStop, pUp = exp / np.sum(exp) 
+    pred = np.argmax(outputs).item()
+    
+    print( outputs )
+    print( f"pStop: {pStop:.4f} | pUp: {pUp:.4f} | pred: {pred}" )
     
     # control logic
-    if "up" in transcription and system_state == DISABLED:
+    if pred and pUp >= EnableThreshold and system_state == DISABLED:
         system_state = ENABLED
         logger.info("Voice command detected: ENABLE data collection")
-    
-    elif "stop" in transcription and system_state == ENABLED:
+        
+    elif not pred and pStop >= EnableThreshold and system_state == ENABLED:
         system_state = DISABLED
         logger.info("Voice command detected: DISABLE data collection")
+        
 
 if __name__ == "__main__":
+    FRONTEND_PATH = './HW2/model/Group9_frontend.onnx'
+    MODEL_PATH = './HW2/model/Group9_model.onnx'
     
     logging.basicConfig(
         level=logging.INFO,
@@ -133,6 +160,7 @@ if __name__ == "__main__":
     # Establish a connection to the Redis Cloud database using the redis-py API.
     logger.info("Connecting to Redis...")
     redis_client = establish_cloud_connection(args)
+    
     # Time series creation
     try:
         redis_client.ts().create(f"{mac_address}:temperature")
@@ -146,7 +174,7 @@ if __name__ == "__main__":
 
     # Load the pretrained Whisper tiny model for voice command recognition.
     logger.info("Loading Whisper tiny model...")
-    model, processor = load_whisper_model()
+    frontend, model = loadFrontendAndModel(FRONTEND_PATH, MODEL_PATH)
 
     # Set the system state to disabled (data collection off).
     ENABLED, DISABLED = 1, 0
