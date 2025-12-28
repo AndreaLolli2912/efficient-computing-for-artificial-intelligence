@@ -1,6 +1,7 @@
 from subprocess import Popen
 from time import sleep
 
+import zipfile
 import os
 import numpy as np
 import onnxruntime as ort
@@ -19,7 +20,7 @@ x_test = np.random.normal(size=(1, 1, 16000)).astype(np.float32)
 GROUP_ID = 9
 
 frontend_file = f'./HW2/model/Group{GROUP_ID}_frontend.onnx'
-model_file =    f'./HW2/model/Group{GROUP_ID}_model_INT8.onnx'
+model_file =    f'./HW2/model/Group{GROUP_ID}_model_INT8.onnx.zip'
 
 frontend_size = os.path.getsize(frontend_file)
 model_size = os.path.getsize(model_file)
@@ -38,6 +39,19 @@ ort_frontend = ort.InferenceSession(frontend_file, sess_options=sess_opt)
 # ORT profile file names use the timestamp.
 # Sleep 1 minute to generate two different file names.
 sleep(60)
+if model_file.lower().endswith(".zip"):
+    with zipfile.ZipFile(model_file, "r") as z:
+        inner_name = z.namelist()[0]
+        extract_dir = os.path.split(os.path.dirname(model_file))[0]
+
+        # Estrai il file nella cartella corretta
+        z.extract(inner_name, extract_dir)
+
+        # Percorso finale corretto
+        model_file = os.path.join(extract_dir, inner_name)
+
+
+
 ort_model = ort.InferenceSession(model_file, sess_options=sess_opt)
 
 tot_latencies = []
