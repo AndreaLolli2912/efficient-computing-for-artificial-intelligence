@@ -6,10 +6,6 @@ import os
 import zipfile
 import numpy as np
 
-
-# TODO: REMOVE DEFAULT ARGUMENTS BEFORE SUBMISSION
-# TODO: CHANGE 'ENABLE THRESHOLD' VALUE BEFORE SUBMISSION FROM 0.99 TO 0.999
-
 import adafruit_dht
 from board import D4
 import redis
@@ -29,26 +25,22 @@ def get_cli()->argparse.Namespace:
     parser.add_argument(
         "--host",
         type=str,
-        help="Redis Cloud host.",
-        default="redis-13420.c328.europe-west3-1.gce.cloud.redislabs.com"
+        help="Redis Cloud host."
     )
     parser.add_argument(
         "--port",
         type=int,
-        help="Redis Cloud port.",
-        default=13420
+        help="Redis Cloud port."
     )
     parser.add_argument(
         "--user",
         type=str,
         help="Redis Cloud username.",
-        default="default"
     )
     parser.add_argument(
         "--password",
         type=str,
-        help="Redis Cloud password.",
-        default='MJle7B18tdGimLEbiiDOLk1qN3e4o9J8'
+        help="Redis Cloud password."
     )
     return parser.parse_args()
 
@@ -102,7 +94,7 @@ def loadFrontendAndModel(frontendPath:str, modelPath:str):
     return InferenceSession(frontendPath), InferenceSession(modelPath)
 
 
-def callback(indata, frames, time, status, EnableThreshold=0.99):
+def callback(indata, frames, time, status, EnableThreshold:float=0.999):
     global system_state
     
     # Convert the recorded audio to a PyTorch tensor of type float32.
@@ -125,9 +117,6 @@ def callback(indata, frames, time, status, EnableThreshold=0.99):
     
     pStop, pUp = exp / np.sum(exp) 
     pred = np.argmax(outputs).item()
-    
-    print( outputs )
-    print( f"pStop: {pStop:.4f} | pUp: {pUp:.4f} | pred: {pred}" )
     
     # control logic
     if pred and pUp >= EnableThreshold and system_state == DISABLED:

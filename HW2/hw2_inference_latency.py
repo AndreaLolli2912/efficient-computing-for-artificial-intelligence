@@ -51,7 +51,6 @@ if model_file.lower().endswith(".zip"):
         model_file = os.path.join(extract_dir, inner_name)
 
 
-
 ort_model = ort.InferenceSession(model_file, sess_options=sess_opt)
 
 tot_latencies = []
