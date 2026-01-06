@@ -109,12 +109,12 @@ def callback(indata, frames, time, status, EnableThreshold:float=0.999):
     # Downsample the signal to 16kHz.
     waveform_16k = torchaudio.functional.resample(waveform_norm, SAMPLING_RATE, 16_000)
     
+    # Feed the preprocessed audio to the frontend and then to the model and get the prediction
     inputs = frontend.run(None, {"input": np.expand_dims(waveform_16k.numpy(), axis=0)})[0]
     outputs = model.run(None, {"input": inputs})[0][0]
     
-    
+    # Post-process the model outputs to get the predicted class and its probability
     exp = np.exp(outputs)
-    
     pStop, pUp = exp / np.sum(exp) 
     pred = np.argmax(outputs).item()
     
@@ -130,7 +130,7 @@ def callback(indata, frames, time, status, EnableThreshold:float=0.999):
 
 if __name__ == "__main__":
     FRONTEND_PATH = './HW2/model/Group9_frontend.onnx'
-    MODEL_PATH = './HW2/model/Group9_model.onnx'
+    MODEL_PATH = './HW2/model/Group9_model.onnx.zip'
     
     logging.basicConfig(
         level=logging.INFO,
@@ -138,6 +138,7 @@ if __name__ == "__main__":
         datefmt="%H:%M:%S"
     )
 
+    # Create a logger instance
     logger = logging.getLogger(__name__)
     args = get_cli()
 
